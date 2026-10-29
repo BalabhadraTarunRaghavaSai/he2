@@ -5,6 +5,8 @@ import os
 import streamlit as st
 from google import genai
 from google.genai import types
+from pypdf import PdfReader
+
 
 
 st.set_page_config(
@@ -14,7 +16,12 @@ st.set_page_config(
 )
 
 st.title("🧠 AI Quiz Generator")
-st.write("Create a quiz on any topic using Google Gemini!")
+st.write("Create a quiz on any topic!")
+uploaded_pdf = st.file_uploader(
+    "📄 Upload your study notes (PDF)",
+    type=["pdf"],
+    help="Upload a text-based PDF to create a quiz from your notes."
+)
 
 # Get API key from Streamlit Cloud Secrets or environment variables
 try:
@@ -63,20 +70,72 @@ with st.form("quiz_settings"):
     )
 
 
+
 if generate:
-    if not topic.strip():
-        st.warning("Please enter a quiz topic.")
+    if not topic.strip() and not uploaded_pdf:
+        st.warning("Please enter a topic or upload a PDF.")
     elif not api_key:
         st.error(
             "Gemini API key not found. Add GEMINI_API_KEY "
-            "under Streamlit Settings → Secrets."
+            "under Streamlit Secrets."
         )
     else:
-        prompt = f"""
-Create exactly {number_of_questions} multiple-choice quiz
-questions about: {topic.strip()}.
+        try:
+            notes_text = ""
 
-Difficulty: {difficulty}.
+            if uploaded_pdf:
+                reader = PdfReader(uploaded_pdf)
+
+                if reader.is_encrypted:
+                    raise ValueError(
+                        "This PDF is password-protected. "
+                        "Please upload an unlocked PDF."
+                    )
+
+                pages = []
+                for page in reader.pages:
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        pages.append(page_text)
+
+                notes_text = "\n\n".join(pages)
+
+                if not notes_text.strip():
+                    raise ValueError(
+                        "No readable text found in the PDF. "
+                        "Please upload a text-based PDF."
+                    )
+
+                notes_text = notes_text[:30000]
+
+            if notes_text:
+                source_instructions = f"""
+Use these study notes as the main source for the quiz.
+Base questions and explanations on the notes.
+Do not invent facts unsupported by the notes.
+If a topic focus is supplied, prioritize that section.
+
+STUDY NOTES:
+<study_notes>
+{notes_text}
+</study_notes>
+"""
+            else:
+                source_instructions = f"""
+Create a quiz about this topic:
+{topic.strip()}
+Use accurate, established knowledge.
+"""
+
+            focus = topic.strip() or "the uploaded study notes"
+
+            prompt = f"""
+Create exactly {number_of_questions} multiple-choice questions.
+
+Topic or focus: {focus}
+Difficulty: {difficulty}
+
+{source_instructions}
 
 Return ONLY valid JSON in this structure:
 {{
@@ -90,21 +149,22 @@ Return ONLY valid JSON in this structure:
         "Option D"
       ],
       "answer": "The exact text of the correct option",
-      "explanation": "A brief explanation of the correct answer"
+      "explanation": "A brief explanation of the answer"
     }}
   ]
 }}
 
 Rules:
-- Every question must have exactly four distinct options.
-- There must be exactly one correct answer per question.
+- Generate exactly {number_of_questions} questions.
+- Each question must have exactly four distinct options.
+- Each question must have exactly one correct answer.
 - The answer must exactly match one of the four options.
-- Explanations should be accurate and educational.
-- Do not include markdown or text outside the JSON.
+- Follow the selected difficulty.
+- If notes are uploaded, base the quiz on their content.
+- Return no markdown or text outside the JSON.
 """
 
-        try:
-            with st.spinner("Gemini is creating your quiz..."):
+            with st.spinner("Gemini is generating your quiz..."):
                 client = genai.Client(api_key=api_key)
 
                 response = client.models.generate_content(
@@ -117,17 +177,15 @@ Rules:
                 )
 
                 if not response.text:
-                    raise ValueError(
-                        "Gemini returned an empty response. Please try again."
-                    )
+                    raise ValueError("Gemini returned an empty response.")
 
                 data = json.loads(response.text)
                 questions = data.get("questions", [])
 
                 if len(questions) != number_of_questions:
                     raise ValueError(
-                        "Gemini returned an unexpected number of questions. "
-                        "Please generate the quiz again."
+                        "Unexpected number of questions returned. "
+                        "Please try again."
                     )
 
                 for question in questions:
@@ -143,7 +201,7 @@ Rules:
                     ):
                         raise ValueError(
                             "A question had an invalid format. "
-                            "Please generate the quiz again."
+                            "Please try again."
                         )
 
                 st.session_state.quiz = questions
@@ -151,11 +209,10 @@ Rules:
 
         except Exception as error:
             st.error(
-                "Could not generate the quiz. Check your Gemini API "
-                "key, API quota, and model availability, then try again."
+                "Could not generate the quiz. Check the PDF, "
+                "Gemini API key, quota, and model availability."
             )
             st.caption(f"Technical details: {error}")
-
 
 # Display the generated quiz
 if st.session_state.quiz:
