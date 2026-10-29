@@ -207,7 +207,7 @@ Rules:
                 st.session_state.quiz = questions
                 st.session_state.result = None
                 st.session_state.current_question = 0
-                st.session_state.submitted_answers = {}
+                st.session_state.user_answers = {}
 
         except Exception as error:
             st.error(
@@ -218,7 +218,7 @@ Rules:
 
 # Display the generated quiz
 
-# Display the generated quiz one question at a time
+# Display the quiz with Previous, Next, and Submit buttons
 if st.session_state.quiz:
     questions = st.session_state.quiz
     total = len(questions)
@@ -226,79 +226,12 @@ if st.session_state.quiz:
     if "current_question" not in st.session_state:
         st.session_state.current_question = 0
 
-    if "submitted_answers" not in st.session_state:
-        st.session_state.submitted_answers = {}
+    if "user_answers" not in st.session_state:
+        st.session_state.user_answers = {}
 
-    current = st.session_state.current_question
-
-    st.divider()
-    st.subheader("📝 Your Quiz")
-    st.progress((current + 1) / total)
-    st.caption(f"Question {current + 1} of {total}")
-
-    question = questions[current]
-    st.markdown(f"### {question['question']}")
-
-    # Display the current question's options
-    if current not in st.session_state.submitted_answers:
-        with st.form(f"question_form_{current}"):
-            selected = st.radio(
-                "Choose your answer:",
-                options=question["options"],
-                index=None,
-            )
-            submitted = st.form_submit_button(
-                "Lock Answer",
-                use_container_width=True,
-            )
-
-        if submitted:
-            if selected is None:
-                st.warning("Please select an answer first.")
-            else:
-                st.session_state.submitted_answers[current] = selected
-                st.rerun()
-
-    else:
-        # Submitted answers cannot be changed
-        selected = st.session_state.submitted_answers[current]
-        st.radio(
-            "Your locked answer:",
-            options=question["options"],
-            index=question["options"].index(selected),
-            disabled=True,
-            key=f"locked_answer_{current}",
-        )
-
-        if selected == question["answer"]:
-            st.success("Correct! ✅")
-        else:
-            st.error("Incorrect.")
-            st.write(f"Correct answer: {question['answer']}")
-
-        st.write(f"**Explanation:** {question['explanation']}")
-
-        if current < total - 1:
-            if st.button("Next Question ➡️", use_container_width=True):
-                st.session_state.current_question += 1
-                st.rerun()
-        else:
-            if st.button("See Final Results 🏆", use_container_width=True):
-                score = sum(
-                    st.session_state.submitted_answers.get(i)
-                    == q["answer"]
-                    for i, q in enumerate(questions)
-                )
-                st.session_state.result = {
-                    "score": score,
-                    "total": total,
-                }
-                st.rerun()
-
-    # Final results
-    if st.session_state.result:
+    # Display results after the entire quiz is submitted
+    if st.session_state.result is not None:
         score = st.session_state.result["score"]
-        total = st.session_state.result["total"]
         percentage = round(score / total * 100)
 
         st.divider()
@@ -317,16 +250,105 @@ if st.session_state.quiz:
         st.subheader("📖 Answer Review")
 
         for i, q in enumerate(questions):
-            user_answer = st.session_state.submitted_answers.get(i)
+            user_answer = st.session_state.user_answers.get(i)
+
             st.markdown(f"**Question {i + 1}: {q['question']}**")
-            st.write(f"Your answer: {user_answer}")
+            st.write(f"Your answer: {user_answer or 'Not answered'}")
             st.write(f"Correct answer: {q['answer']}")
             st.write(f"Explanation: {q['explanation']}")
             st.divider()
 
-        if st.button("🔄 Start a New Quiz"):
+        if st.button("🔄 Start a New Quiz", use_container_width=True):
             st.session_state.quiz = None
             st.session_state.result = None
             st.session_state.current_question = 0
-            st.session_state.submitted_answers = {}
+            st.session_state.user_answers = {}
             st.rerun()
+
+    else:
+        current = st.session_state.current_question
+        question = questions[current]
+
+        st.divider()
+        st.subheader("📝 Your Quiz")
+        st.progress((current + 1) / total)
+        st.caption(f"Question {current + 1} of {total}")
+
+        st.markdown(f"### {question['question']}")
+
+        # Restore the previously selected answer when navigating
+        answer_key = f"quiz_answer_{current}"
+
+        if answer_key not in st.session_state:
+            st.session_state[answer_key] = (
+                st.session_state.user_answers.get(current)
+            )
+
+        selected = st.radio(
+            "Choose your answer:",
+            options=question["options"],
+            index=(
+                question["options"].index(
+                    st.session_state.user_answers[current]
+                )
+                if current in st.session_state.user_answers
+                else None
+            ),
+            key=answer_key,
+        )
+
+        # Save the selected answer so it remains when navigating
+        if selected is not None:
+            st.session_state.user_answers[current] = selected
+
+        st.write("")
+
+        # Previous button on the left, Next or Submit on the right
+        left, right = st.columns(2)
+
+        with left:
+            if st.button(
+                "⬅️ Previous",
+                disabled=(current == 0),
+                use_container_width=True,
+            ):
+                st.session_state.current_question -= 1
+                st.rerun()
+
+        with right:
+            if current < total - 1:
+                if st.button(
+                    "Next ➡️",
+                    use_container_width=True,
+                ):
+                    st.session_state.current_question += 1
+                    st.rerun()
+
+            else:
+                if st.button(
+                    "✅ Submit Quiz",
+                    use_container_width=True,
+                ):
+                    unanswered = [
+                        i + 1
+                        for i in range(total)
+                        if i not in st.session_state.user_answers
+                    ]
+
+                    if unanswered:
+                        st.warning(
+                            "Please answer every question before submitting. "
+                            f"Unanswered questions: {unanswered}"
+                        )
+                    else:
+                        score = sum(
+                            st.session_state.user_answers.get(i)
+                            == q["answer"]
+                            for i, q in enumerate(questions)
+                        )
+
+                        st.session_state.result = {
+                            "score": score,
+                            "total": total,
+                        }
+                        st.rerun()
