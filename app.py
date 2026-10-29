@@ -15,6 +15,19 @@ st.set_page_config(
     layout="centered",
 )
 
+st.markdown(
+    """
+    <style>
+    div[role="radiogroup"] > label {
+        margin-bottom: 12px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("🧠 AI Quiz Generator")
+
 st.title("🧠 AI Quiz Generator")
 st.write("Create a quiz on any topic!")
 uploaded_pdf = st.file_uploader(
