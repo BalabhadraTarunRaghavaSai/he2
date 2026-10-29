@@ -28,7 +28,6 @@ st.markdown(
 
 st.title("🧠 AI Quiz Generator")
 
-st.title("🧠 AI Quiz Generator")
 st.write("Create a quiz on any topic!")
 uploaded_pdf = st.file_uploader(
     "📄 Upload your study notes (PDF)",
