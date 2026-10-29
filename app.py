@@ -206,6 +206,8 @@ Rules:
 
                 st.session_state.quiz = questions
                 st.session_state.result = None
+                st.session_state.current_question = 0
+                st.session_state.submitted_answers = {}
 
         except Exception as error:
             st.error(
@@ -215,55 +217,85 @@ Rules:
             st.caption(f"Technical details: {error}")
 
 # Display the generated quiz
+
+# Display the generated quiz one question at a time
 if st.session_state.quiz:
     questions = st.session_state.quiz
+    total = len(questions)
+
+    if "current_question" not in st.session_state:
+        st.session_state.current_question = 0
+
+    if "submitted_answers" not in st.session_state:
+        st.session_state.submitted_answers = {}
+
+    current = st.session_state.current_question
 
     st.divider()
     st.subheader("📝 Your Quiz")
-    st.caption(f"{len(questions)} questions · Select one answer per question")
+    st.progress((current + 1) / total)
+    st.caption(f"Question {current + 1} of {total}")
 
-    with st.form("answer_form"):
-        for i, question in enumerate(questions):
-            st.markdown(f"**Question {i + 1}: {question['question']}**")
+    question = questions[current]
+    st.markdown(f"### {question['question']}")
 
-            st.radio(
+    # Display the current question's options
+    if current not in st.session_state.submitted_answers:
+        with st.form(f"question_form_{current}"):
+            selected = st.radio(
                 "Choose your answer:",
                 options=question["options"],
-                key=f"answer_{i}",
                 index=None,
             )
+            submitted = st.form_submit_button(
+                "Lock Answer",
+                use_container_width=True,
+            )
 
-            st.write("")
+        if submitted:
+            if selected is None:
+                st.warning("Please select an answer first.")
+            else:
+                st.session_state.submitted_answers[current] = selected
+                st.rerun()
 
-        submitted = st.form_submit_button(
-            "✅ Submit Answers",
-            use_container_width=True,
+    else:
+        # Submitted answers cannot be changed
+        selected = st.session_state.submitted_answers[current]
+        st.radio(
+            "Your locked answer:",
+            options=question["options"],
+            index=question["options"].index(selected),
+            disabled=True,
+            key=f"locked_answer_{current}",
         )
 
-    if submitted:
-        unanswered = [
-            i + 1
-            for i in range(len(questions))
-            if st.session_state.get(f"answer_{i}") is None
-        ]
-
-        if unanswered:
-            st.warning(
-                "Please answer every question before submitting. "
-                f"Unanswered question numbers: {unanswered}"
-            )
+        if selected == question["answer"]:
+            st.success("Correct! ✅")
         else:
-            score = sum(
-                st.session_state[f"answer_{i}"] == question["answer"]
-                for i, question in enumerate(questions)
-            )
+            st.error("Incorrect.")
+            st.write(f"Correct answer: {question['answer']}")
 
-            st.session_state.result = {
-                "score": score,
-                "total": len(questions),
-            }
+        st.write(f"**Explanation:** {question['explanation']}")
 
-    # Show score and explanations after submission
+        if current < total - 1:
+            if st.button("Next Question ➡️", use_container_width=True):
+                st.session_state.current_question += 1
+                st.rerun()
+        else:
+            if st.button("See Final Results 🏆", use_container_width=True):
+                score = sum(
+                    st.session_state.submitted_answers.get(i)
+                    == q["answer"]
+                    for i, q in enumerate(questions)
+                )
+                st.session_state.result = {
+                    "score": score,
+                    "total": total,
+                }
+                st.rerun()
+
+    # Final results
     if st.session_state.result:
         score = st.session_state.result["score"]
         total = st.session_state.result["total"]
@@ -271,30 +303,30 @@ if st.session_state.quiz:
 
         st.divider()
         st.subheader("🏆 Your Results")
-
         st.metric("Your Score", f"{score} / {total}")
         st.progress(percentage / 100)
         st.write(f"**Percentage:** {percentage}%")
 
         if percentage == 100:
-            st.success("Excellent! You got every question correct! 🎉")
+            st.success("Excellent! Every answer was correct! 🎉")
         elif percentage >= 60:
             st.success("Good job! Keep practising.")
         else:
-            st.info("Keep learning! Review the explanations below.")
+            st.info("Keep learning and practising!")
 
         st.subheader("📖 Answer Review")
 
-        for i, question in enumerate(questions):
-            user_answer = st.session_state.get(f"answer_{i}")
-            correct_answer = question["answer"]
-
-            if user_answer == correct_answer:
-                st.markdown(f"**{i + 1}. Correct! ✅**")
-            else:
-                st.markdown(f"**{i + 1}. Incorrect ❌**")
-                st.write(f"Your answer: {user_answer}")
-                st.write(f"Correct answer: {correct_answer}")
-
-            st.write(f"Explanation: {question['explanation']}")
+        for i, q in enumerate(questions):
+            user_answer = st.session_state.submitted_answers.get(i)
+            st.markdown(f"**Question {i + 1}: {q['question']}**")
+            st.write(f"Your answer: {user_answer}")
+            st.write(f"Correct answer: {q['answer']}")
+            st.write(f"Explanation: {q['explanation']}")
             st.divider()
+
+        if st.button("🔄 Start a New Quiz"):
+            st.session_state.quiz = None
+            st.session_state.result = None
+            st.session_state.current_question = 0
+            st.session_state.submitted_answers = {}
+            st.rerun()
